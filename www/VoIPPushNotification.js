@@ -139,5 +139,5 @@ cordova.define("cordova-plugin-callkit.VoIPPushNotification", function(require, 
     
         VoIPPushNotification: VoIPPushNotification
     };
-    });
+});
     

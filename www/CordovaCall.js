@@ -95,5 +95,5 @@ cordova.define("cordova-plugin-callkit.CordovaCall", function(require, exports, 
       };
       exec(success, error, "CordovaCall", "registerEvent", [e]);
   };
-  });
+});
   
