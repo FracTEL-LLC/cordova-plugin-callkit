@@ -1,4 +1,3 @@
-cordova.define("cordova-plugin-callkit.VoIPPushNotification", function(require, exports, module) { 
     /* Forked from: https://github.com/phonegap/phonegap-plugin-push/blob/master/www/push.js*/
     /* global cordova:false */
     /* globals window */
@@ -139,5 +138,4 @@ cordova.define("cordova-plugin-callkit.VoIPPushNotification", function(require, 
     
         VoIPPushNotification: VoIPPushNotification
     };
-});
     
