@@ -6,23 +6,16 @@
 
 @synthesize VoIPPushCallbackId, VoIPPushClassName, VoIPPushMethodName;
 
-BOOL hasVideo = YES;
+BOOL hasVideo = NO;
 NSString* appName;
 NSString* ringtone;
 NSString* icon;
-BOOL includeInRecents = NO;
-NSMutableDictionary<NSString*, NSMutableArray*> *callbackIds;
+NSUUID* uuid;
+BOOL includeInRecents = YES;
+NSMutableDictionary *callbackIds;
 NSDictionary* pendingCallFromRecents;
 BOOL monitorAudioRouteChange = NO;
 BOOL enableDTMF = NO;
-BOOL isRinging = NO;
-PKPushRegistry *_voipRegistry;
-
-NSMutableArray* pendingCallResponses;
-NSString* const PENDING_RESPONSE_ANSWER = @"pendingResponseAnswer";
-NSString* const PENDING_RESPONSE_REJECT = @"pendingResponseReject";
-
-NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
 
 - (void)pluginInitialize
 {
@@ -36,7 +29,7 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
     providerConfiguration.supportedHandleTypes = handleTypes;
     providerConfiguration.supportsVideo = YES;
     if (@available(iOS 11.0, *)) {
-        providerConfiguration.includesCallsInRecents = NO;
+        providerConfiguration.includesCallsInRecents = YES;
     }
     self.provider = [[CXProvider alloc] initWithConfiguration:providerConfiguration];
     [self.provider setDelegate:self queue:nil];
@@ -53,27 +46,10 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
     [callbackIds setObject:[NSMutableArray array] forKey:@"speakerOn"];
     [callbackIds setObject:[NSMutableArray array] forKey:@"speakerOff"];
     [callbackIds setObject:[NSMutableArray array] forKey:@"DTMF"];
-    
-    // Add call response (answer or reject) to pending if event listeners are not added at the time of responding
-    pendingCallResponses = [NSMutableArray new];
-    
     //allows user to make call from recents
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receiveCallFromRecents:) name:@"RecentsCallNotification" object:nil];
     //detect Audio Route Changes to make speakerOn and speakerOff event handlers
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleAudioRouteChange:) name:AVAudioSessionRouteChangeNotification object:nil];
-    
-    // Initialize PKPushRegistry
-    //http://stackoverflow.com/questions/27245808/implement-pushkit-and-test-in-development-behavior/28562124#28562124
-    dispatch_queue_t mainQueue = dispatch_get_main_queue();
-    // Create a push registry object
-    _voipRegistry = [[PKPushRegistry alloc] initWithQueue: mainQueue];
-    // Set the registry's delegate to self
-    [_voipRegistry setDelegate:(id<PKPushRegistryDelegate> _Nullable)self];
-    // Set the push type to VoIP
-    _voipRegistry.desiredPushTypes = [NSSet setWithObject:PKPushTypeVoIP];
-    
-    // Read VoIPPushToken from UserDefaults
-    self.VoIPPushToken = [[NSUserDefaults standardUserDefaults] stringForKey:KEY_VOIP_PUSH_TOKEN];
 }
 
 // CallKit - Interface
@@ -217,23 +193,21 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
         callUpdate.supportsUngrouping = NO;
         callUpdate.supportsHolding = NO;
         callUpdate.supportsDTMF = enableDTMF;
-        if (!isRinging) {
-            [self.provider reportNewIncomingCallWithUUID:callUUID update:callUpdate completion:^(NSError * _Nullable error) {
-                if(error == nil) {
-                    isRinging = YES;
-                    [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Incoming call successful"] callbackId:command.callbackId];
-                } else {
-                    [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[error localizedDescription]] callbackId:command.callbackId];
-                }
-            }];
-            for (id callbackId in callbackIds[@"receiveCall"]) {
-                CDVPluginResult* pluginResult = nil;
-                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"receiveCall event called successfully"];
-                [pluginResult setKeepCallbackAsBool:YES];
-                [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+        
+        uuid = callUUID;
+
+        [self.provider reportNewIncomingCallWithUUID:callUUID update:callUpdate completion:^(NSError * _Nullable error) {
+            if(error == nil) {
+                [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Incoming call successful"] callbackId:command.callbackId];
+            } else {
+                [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:[error localizedDescription]] callbackId:command.callbackId];
             }
-        } else {
-            [self endCall:command];
+        }];
+        for (id callbackId in callbackIds[@"receiveCall"]) {
+            CDVPluginResult* pluginResult = nil;
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"receiveCall event called successfully"];
+            [pluginResult setKeepCallbackAsBool:YES];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
         }
     } else {
         [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"Caller id can't be empty"] callbackId:command.callbackId];
@@ -287,13 +261,12 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
 
 - (void)endCall:(CDVInvokedUrlCommand*)command
 {
-    isRinging = NO;
     CDVPluginResult* pluginResult = nil;
     NSArray<CXCall *> *calls = self.callController.callObserver.calls;
 
-    if([calls count] == 1) {
+    if([calls count] >= 1) {
         //[self.provider reportCallWithUUID:calls[0].UUID endedAtDate:nil reason:CXCallEndedReasonRemoteEnded];
-        CXEndCallAction *endCallAction = [[CXEndCallAction alloc] initWithCallUUID:calls[0].UUID];
+        CXEndCallAction *endCallAction = [[CXEndCallAction alloc] initWithCallUUID:uuid];
         CXTransaction *transaction = [[CXTransaction alloc] initWithAction:endCallAction];
         [self.callController requestTransaction:transaction completion:^(NSError * _Nullable error) {
             if (error == nil) {
@@ -321,16 +294,6 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callData];
         [pluginResult setKeepCallbackAsBool:YES];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
-    }
-    
-    // In case of registerEvent answer or reject called after responding to call, trigger cordova event for the appropriate answer
-    if ([eventName isEqualToString:@"answer"] && [pendingCallResponses containsObject:PENDING_RESPONSE_ANSWER]) {
-        [self triggerCordovaEventForCallResponse:@"answer"];
-        [pendingCallResponses removeObject:PENDING_RESPONSE_ANSWER];
-    }
-    if ([eventName isEqualToString:@"reject"] && [pendingCallResponses containsObject:PENDING_RESPONSE_REJECT]) {
-        [self triggerCordovaEventForCallResponse:@"reject"];
-        [pendingCallResponses removeObject:PENDING_RESPONSE_REJECT];
     }
 }
 
@@ -501,11 +464,11 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
     //[action fail];
 }
 
-- (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession
-{
-    NSLog(@"activated audio");
-    monitorAudioRouteChange = YES;
-}
+//- (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession
+//{
+//    NSLog(@"activated audio");
+//    monitorAudioRouteChange = YES;
+//}
 
 - (void)provider:(CXProvider *)provider didDeactivateAudioSession:(AVAudioSession *)audioSession
 {
@@ -514,23 +477,21 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
 
 - (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action
 {
-    isRinging = NO;
-    [self setupAudioSession];
-    [action fulfill];
-    if ([callbackIds[@"answer"] count] == 0) {
-        // callbackId for event not registered, add to pending to trigger on registration
-        [pendingCallResponses addObject:PENDING_RESPONSE_ANSWER];
-    } else {
-        [self triggerCordovaEventForCallResponse:@"answer"];
+    //[self setupAudioSession];
+    //[action fulfill];
+    for (id callbackId in callbackIds[@"answer"]) {
+        CDVPluginResult* pluginResult = nil;
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"answer event called successfully"];
+        [pluginResult setKeepCallbackAsBool:YES];
+        [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
     }
     //[action fail];
 }
 
 - (void)provider:(CXProvider *)provider performEndCallAction:(CXEndCallAction *)action
 {
-    isRinging = NO;
     NSArray<CXCall *> *calls = self.callController.callObserver.calls;
-    if([calls count] == 1) {
+    if([calls count] >= 1) {
         if(calls[0].hasConnected) {
             for (id callbackId in callbackIds[@"hangup"]) {
                 CDVPluginResult* pluginResult = nil;
@@ -539,35 +500,17 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
                 [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
             }
         } else {
-            if ([callbackIds[@"reject"] count] == 0) {
-                // callbackId for event not registered, add to pending to trigger on registration
-                [pendingCallResponses addObject:PENDING_RESPONSE_REJECT];
-            } else {
-                [self triggerCordovaEventForCallResponse:@"reject"];
+            for (id callbackId in callbackIds[@"reject"]) {
+                CDVPluginResult* pluginResult = nil;
+                pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"reject event called successfully"];
+                [pluginResult setKeepCallbackAsBool:YES];
+                [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
             }
         }
     }
     monitorAudioRouteChange = NO;
     [action fulfill];
     //[action fail];
-}
-
-- (void)triggerCordovaEventForCallResponse:(NSString*) response {
-    if ([response isEqualToString:@"answer"]) {
-        for (id callbackId in callbackIds[@"answer"]) {
-            CDVPluginResult* pluginResult = nil;
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"answer event called successfully"];
-            [pluginResult setKeepCallbackAsBool:YES];
-            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
-        }
-    } else if ([response isEqualToString:@"reject"]) {
-        for (id callbackId in callbackIds[@"reject"]) {
-            CDVPluginResult* pluginResult = nil;
-            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"reject event called successfully"];
-            [pluginResult setKeepCallbackAsBool:YES];
-            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
-        }
-    }
 }
 
 - (void)provider:(CXProvider *)provider performSetMutedCallAction:(CXSetMutedCallAction *)action
@@ -595,31 +538,20 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
         [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
     }
 }
+
 // PushKit
 - (void)init:(CDVInvokedUrlCommand*)command
 {
-    self.VoIPPushCallbackId = command.callbackId;
-    NSLog(@"[objC] callbackId: %@", self.VoIPPushCallbackId);
-    
-    [self sendTokenPluginResult];
+  self.VoIPPushCallbackId = command.callbackId;
+  NSLog(@"[objC] callbackId: %@", self.VoIPPushCallbackId);
+
+  //http://stackoverflow.com/questions/27245808/implement-pushkit-and-test-in-development-behavior/28562124#28562124
+  PKPushRegistry *pushRegistry = [[PKPushRegistry alloc] initWithQueue:dispatch_get_main_queue()];
+  pushRegistry.delegate = self;
+  pushRegistry.desiredPushTypes = [NSSet setWithObject:PKPushTypeVoIP];
 }
 
-- (void)sendTokenPluginResult {
-    if (!self.VoIPPushCallbackId || !self.VoIPPushToken) {
-        return;
-    }
-
-    NSMutableDictionary* results = [NSMutableDictionary dictionaryWithCapacity:2];
-    [results setObject:self.VoIPPushToken forKey:@"deviceToken"];
-    [results setObject:@"true" forKey:@"registration"];
-    
-    CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:results];
-    [pluginResult setKeepCallbackAsBool:YES];
-    [self.commandDelegate sendPluginResult:pluginResult callbackId:self.VoIPPushCallbackId];
-}
-
-#define PushKit Delegate Methods
-- (void)pushRegistry:(PKPushRegistry *)registry didUpdatePushCredentials:(PKPushCredentials *)credentials forType:(PKPushType)type{
+- (void)pushRegistry:(PKPushRegistry *)registry didUpdatePushCredentials:(PKPushCredentials *)credentials forType:(NSString *)type{
     if([credentials.token length] == 0) {
         NSLog(@"[objC] No device token!");
         return;
@@ -628,56 +560,56 @@ NSString* const KEY_VOIP_PUSH_TOKEN = @"PK_deviceToken";
     //http://stackoverflow.com/a/9372848/534755
     NSLog(@"[objC] Device token: %@", credentials.token);
     const unsigned *tokenBytes = [credentials.token bytes];
-    self.VoIPPushToken = [NSString stringWithFormat:@"%08x%08x%08x%08x%08x%08x%08x%08x",
+    NSString *sToken = [NSString stringWithFormat:@"%08x%08x%08x%08x%08x%08x%08x%08x",
                          ntohl(tokenBytes[0]), ntohl(tokenBytes[1]), ntohl(tokenBytes[2]),
                          ntohl(tokenBytes[3]), ntohl(tokenBytes[4]), ntohl(tokenBytes[5]),
                          ntohl(tokenBytes[6]), ntohl(tokenBytes[7])];
+
+    NSMutableDictionary* results = [NSMutableDictionary dictionaryWithCapacity:2];
+    [results setObject:sToken forKey:@"deviceToken"];
+    [results setObject:@"true" forKey:@"registration"];
     
-    // Store VoIPPushToken in UserDefaults
-    [[NSUserDefaults standardUserDefaults] setObject:self.VoIPPushToken forKey:KEY_VOIP_PUSH_TOKEN];
-    
-    [self sendTokenPluginResult];
+    CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:results];
+    [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]]; //[pluginResult setKeepCallbackAsBool:YES];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:self.VoIPPushCallbackId];
 }
-- (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(PKPushType)type withCompletionHandler:(void (^)(void))completion
+
+- (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(NSString *)type withCompletionHandler:(void (^)(void))completion
 {
     NSDictionary *payloadDict = payload.dictionaryPayload[@"aps"];
     NSLog(@"[objC] didReceiveIncomingPushWithPayload: %@", payloadDict);
 
     NSString *message = payloadDict[@"alert"];
     NSLog(@"[objC] received VoIP message: %@", message);
-    
+
     NSDictionary *data = payload.dictionaryPayload[@"data"];
     NSLog(@"[objC] received data: %@", data);
-    
+
     NSMutableDictionary* results = [NSMutableDictionary dictionaryWithCapacity:2];
     [results setObject:message forKey:@"function"];
     [results setObject:@"" forKey:@"extra"];
 
-    NSObject* caller = [data objectForKey:@"Caller"];
-    NSArray* args = [NSArray arrayWithObjects:[caller valueForKey:@"Username"], [caller valueForKey:@"ConnectionId"], nil];
-    CDVInvokedUrlCommand* newCommand = [[CDVInvokedUrlCommand alloc] initWithArguments:args callbackId:@"" className:self.VoIPPushClassName methodName:self.VoIPPushMethodName];
-    
-    [self receiveCall:newCommand];
     @try {
         NSError * err;
-        NSData * jsonData = [NSJSONSerialization dataWithJSONObject:data options:0 error:&err];
-        NSString * dataString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-        [results setObject:dataString forKey:@"extra"];
+               NSData * jsonData = [NSJSONSerialization dataWithJSONObject:data options:0 error:&err];
+               NSString * dataString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+               [results setObject:dataString forKey:@"extra"];
+
+               NSObject* caller = [data objectForKey:@"Caller"];
+        NSArray* args = [NSArray arrayWithObjects:[caller valueForKey:@"Username"], [caller valueForKey:@"ConnectionId"], nil];
         
+        CDVInvokedUrlCommand* newCommand = [[CDVInvokedUrlCommand alloc] initWithArguments:args callbackId:@"" className:self.VoIPPushClassName methodName:self.VoIPPushMethodName];
         
+        [self receiveCall:newCommand];
     }
     @catch (NSException *exception) {
-        NSLog(@"[objC] error: %@", exception.reason);
-        CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:exception.reason];
-        [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:self.VoIPPushCallbackId];
-        return;
+       NSLog(@"[objC] error: %@", exception.reason);
     }
     @finally {
         CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:results];
         [pluginResult setKeepCallback:[NSNumber numberWithBool:YES]];
         [self.commandDelegate sendPluginResult:pluginResult callbackId:self.VoIPPushCallbackId];
-        completion();
     }
 }
+
 @end
