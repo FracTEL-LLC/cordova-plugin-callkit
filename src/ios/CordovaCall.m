@@ -464,11 +464,11 @@ BOOL enableDTMF = NO;
     //[action fail];
 }
 
-//- (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession
-//{
-//    NSLog(@"activated audio");
-//    monitorAudioRouteChange = YES;
-//}
+- (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession
+{
+   NSLog(@"activated audio");
+   monitorAudioRouteChange = YES;
+}
 
 - (void)provider:(CXProvider *)provider didDeactivateAudioSession:(AVAudioSession *)audioSession
 {
@@ -477,8 +477,9 @@ BOOL enableDTMF = NO;
 
 - (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action
 {
-    //[self setupAudioSession];
-    //[action fulfill];
+    // commenting these next 2 out will show connecting screen
+    [self setupAudioSession];
+    [action fulfill];
     for (id callbackId in callbackIds[@"answer"]) {
         CDVPluginResult* pluginResult = nil;
         pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"answer event called successfully"];
