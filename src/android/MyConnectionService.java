@@ -17,7 +17,7 @@ import android.net.Uri;
 import java.util.ArrayList;
 import android.util.Log;
 
-@RequiresApi(api = Build.VERSION_CODES.M)
+
 public class MyConnectionService extends ConnectionService {
 
     private static String TAG = "MyConnectionService";
