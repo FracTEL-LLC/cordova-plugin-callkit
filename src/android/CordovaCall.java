@@ -55,8 +55,8 @@ public class CordovaCall extends CordovaPlugin {
         return cordovaInterface;
     }
 
-    public static CordovaWebView getWebView() { 
-        return cordovaWebView; 
+    public static CordovaWebView getWebView() {
+        return cordovaWebView;
     }
 
     public static Icon getIcon() {
@@ -81,11 +81,11 @@ public class CordovaCall extends CordovaPlugin {
                   .build();
           tm.registerPhoneAccount(phoneAccount);
         }
-        if(android.os.Build.VERSION.SDK_INT >= 23) {
+        else if(android.os.Build.VERSION.SDK_INT >= 23) {
           phoneAccount = new PhoneAccount.Builder(handle, appName)
                    .setCapabilities(PhoneAccount.CAPABILITY_CALL_PROVIDER)
                    .build();
-          tm.registerPhoneAccount(phoneAccount);          
+          tm.registerPhoneAccount(phoneAccount);
         }
         callbackContextMap.put("answer",new ArrayList<CallbackContext>());
         callbackContextMap.put("reject",new ArrayList<CallbackContext>());
