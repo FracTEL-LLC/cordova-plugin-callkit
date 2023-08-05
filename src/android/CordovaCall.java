@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import android.graphics.drawable.Icon;
 import android.media.AudioManager;
+import androidx.core.app.ActivityCompat
 
 public class CordovaCall extends CordovaPlugin {
 
@@ -118,7 +119,7 @@ public class CordovaCall extends CordovaPlugin {
                 from = args.getString(0);
                 permissionCounter = 2;
                 pendingAction = "receiveCall";
-                if (android.os.Build.VERSION.SDK_INT >= 30 && android.content.Context.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
+                if (android.os.Build.VERSION.SDK_INT >= 30 && ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
                   cordova.getThreadPool().execute(new Runnable() {
                       public void run() {
                           readPhoneNumbersPermission();
