@@ -360,6 +360,7 @@ public class CordovaCall extends CordovaPlugin {
                 this.callNumber();
                 break;
             case READ_PHONE_NUMBERS:
+                this.receiveCall();
                 break;
         }
     }
