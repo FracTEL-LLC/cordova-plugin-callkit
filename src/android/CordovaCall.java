@@ -118,12 +118,12 @@ public class CordovaCall extends CordovaPlugin {
                 from = args.getString(0);
                 permissionCounter = 2;
                 pendingAction = "receiveCall";
-                this.checkCallPermission();
                 cordova.getThreadPool().execute(new Runnable() {
                     public void run() {
                         readPhoneNumbersPermission();
                     }
                 });
+                this.checkCallPermission();
             }
             return true;
         } else if (action.equals("sendCall")) {
