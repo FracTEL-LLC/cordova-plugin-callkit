@@ -31,6 +31,7 @@ public class CordovaCall extends CordovaPlugin {
     private static String TAG = "CordovaCall";
     public static final int CALL_PHONE_REQ_CODE = 0;
     public static final int REAL_PHONE_CALL = 1;
+    public static final int READ_PHONE_NUMBERS = 2;
     private int permissionCounter = 0;
     private String pendingAction;
     private TelecomManager tm;
@@ -118,6 +119,11 @@ public class CordovaCall extends CordovaPlugin {
                 permissionCounter = 2;
                 pendingAction = "receiveCall";
                 this.checkCallPermission();
+                cordova.getThreadPool().execute(new Runnable() {
+                    public void run() {
+                        readPhoneNumbersPermission();
+                    }
+                });
             }
             return true;
         } else if (action.equals("sendCall")) {
@@ -330,6 +336,10 @@ public class CordovaCall extends CordovaPlugin {
         this.callbackContext.success("Call Successful");
     }
 
+    protected void readPhoneNumbersPermission() {
+        cordova.requestPermission(this, READ_PHONE_NUMBERS, Manifest.permission.READ_PHONE_NUMBERS);
+    }
+
     @Override
     public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException
     {
@@ -348,6 +358,8 @@ public class CordovaCall extends CordovaPlugin {
                 break;
             case REAL_PHONE_CALL:
                 this.callNumber();
+                break;
+            case READ_PHONE_NUMBERS:
                 break;
         }
     }
